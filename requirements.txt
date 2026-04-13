@@ -6,3 +6,8 @@ Pillow
 reportlab
 arabic-reshaper
 python-bidi
+pydub
+SpeechRecognition
+pytesseract
+opencv-python
+numpy
