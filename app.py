@@ -2,87 +2,124 @@ import streamlit as st
 import google.generativeai as genai
 import pdfplumber
 from docx import Document
-from io import BytesIO
 from PIL import Image
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors 
+import pytesseract
+import speech_recognition as sr
+from pydub import AudioSegment
+from io import BytesIO
 from arabic_reshaper import reshape
 from bidi.algorithm import get_display
 
-# إعداد الـ API (المفتاح الجديد الشغال)
+# ==========================================
+# 1. إعدادات الذكاء الاصطناعي (API Key)
+# ==========================================
 API_KEY = "AIzaSyDso4OPFXij1guGTSX6gN2zwSaXDix-c1o"
 genai.configure(api_key=API_KEY)
 
 @st.cache_resource
-def get_model():
-    return genai.GenerativeModel('gemini-1.5-flash')
+def load_model():
+    return genai.GenerativeModel("gemini-1.5-flash")
 
-model = get_model()
+model = load_model()
 
-def fix_text(t):
-    return get_display(reshape(t))
+# ==========================================
+# 2. وظائف المعالجة الاحترافية
+# ==========================================
+def fix_arabic(text):
+    try:
+        if not text: return ""
+        return get_display(reshape(text))
+    except:
+        return text
 
-# واجهة المستخدم (التصميم الملكي)
-st.set_page_config(page_title="المنصة الملكية AI", layout="wide")
+def extract_audio_text(file):
+    try:
+        audio = AudioSegment.from_file(file)
+        wav_io = BytesIO()
+        audio.export(wav_io, format="wav")
+        wav_io.seek(0)
+        r = sr.Recognizer()
+        with sr.AudioFile(wav_io) as source:
+            audio_data = r.record(source)
+        return r.recognize_google(audio_data, language="ar-SA")
+    except Exception as e:
+        return f"⚠️ خطأ في معالجة الصوت: {str(e)}"
+
+def extract_content(file):
+    try:
+        if file.type.startswith("image/"):
+            img = Image.open(file)
+            return pytesseract.image_to_string(img, lang="ara+eng")
+        elif file.type == "application/pdf":
+            with pdfplumber.open(file) as pdf:
+                return "\n".join([p.extract_text() or "" for p in pdf.pages])
+        elif file.type in ["audio/mpeg", "audio/wav", "audio/mp3"]:
+            return extract_audio_text(file)
+        else:
+            return file.read().decode(errors="ignore")
+    except Exception as e:
+        return f"⚠️ تعذر قراءة {file.name}: {str(e)}"
+
+# ==========================================
+# 3. تصميم واجهة المستخدم VIP
+# ==========================================
+st.set_page_config(page_title="Royal AI Platform", layout="wide")
 
 st.markdown("""
-    <style>
+<style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo&display=swap');
-    * { font-family: 'Cairo', sans-serif; text-align: right; }
-    .stApp { background: #fdfdfd; }
-    .card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid #eee; margin-bottom: 20px; }
-    .quran { background: #fffcf0; border-right: 12px solid #059669; padding: 25px; border-radius: 15px; font-size: 20px; }
-    </style>
-    """, unsafe_allow_html=True)
+    html, body, [data-testid="stSidebar"], .stMarkdown {
+        font-family: 'Cairo', sans-serif;
+        text-align: right;
+    }
+    .stApp { background-color: #f8fafc; }
+    .card {
+        padding: 25px;
+        background: white;
+        border-radius: 20px;
+        border-right: 10px solid #1e3a8a;
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        margin-bottom: 25px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-with st.sidebar:
-    st.header("🎨 التحكم")
-    b_color = st.color_picker("لون الإطار", "#1e3a8a")
-    st.success("الذكاء الخارق مفعل ✅")
+# --- التبويبات ---
+tabs = st.tabs(["📑 التلخيص الذكي", "💬 الشات المطور", "📖 واحة القرآن"])
 
-t1, t2, t3 = st.tabs(["📑 التلخيص والقوالب", "💬 الشات المطور", "📖 واحة القرآن"])
+# 1. تبويب التلخيص
+with tabs[0]:
+    st.header("🎯 معالج الوسائط الشامل")
+    files = st.file_uploader("ارفع (صور OCR، ملفات PDF، تسجيلات صوتية)", accept_multiple_files=True)
+    if files and st.button("🚀 ابدأ التلخيص الملكي"):
+        with st.spinner("⚡ جاري تحويل الملفات لنصوص وتلخيصها..."):
+            full_text = ""
+            for f in files:
+                full_text += f"\n--- {f.name} ---\n" + extract_content(f)
+            
+            p = f"قم بتلخيص هذا المحتوى باحترافية، استخدم جداول ونقاط واضحة: \n{full_text}"
+            res = model.generate_content(p)
+            st.markdown(f'<div class="card">{res.text}</div>', unsafe_allow_html=True)
 
-# --- التلخيص ---
-with t1:
-    st.markdown('<div class="card"><h2>🎯 مركز التلخيص وتنسيق الملفات</h2></div>', unsafe_allow_html=True)
-    up_files = st.file_uploader("ارفع (صور، PDF، Word)", accept_multiple_files=True)
-    if up_files and st.button("🚀 ولّد الملخص الإمبراطوري"):
-        with st.spinner("⚡ جاري استخراج العظمة..."):
-            contents = ["لخص باحترافية، لغة عربية رصينة، جداول، أسئلة. قلد القالب لو وجد."]
-            for f in up_files:
-                if f.type.startswith('image/'): contents.append(Image.open(f))
-                elif f.type == "application/pdf":
-                    with pdfplumber.open(f) as pdf:
-                        contents.append(" ".join([p.extract_text() for p in pdf.pages if p.extract_text()]))
-                else: contents.append(f.read().decode(errors='ignore'))
-            res = model.generate_content(contents).text
-            st.markdown(f'<div class="card" style="border-right: 10px solid {b_color};">{res}</div>', unsafe_allow_html=True)
-
-# --- الشات (الصور والملفات) ---
-with t2:
-    if "messages" not in st.session_state: st.session_state.messages = []
-    chat_up = st.file_uploader("ارفع ملف/صورة للشات", accept_multiple_files=True, key="chat")
-    for m in st.session_state.messages:
-        with st.chat_message(m["role"]): st.markdown(m["content"])
-    if p := st.chat_input("تكلم معي.. أنا أفهم كل شيء"):
-        st.session_state.messages.append({"role": "user", "content": p})
-        with st.chat_message("user"): st.markdown(p)
+# 2. تبويب الشات
+with tabs[1]:
+    if "history" not in st.session_state: st.session_state.history = []
+    for msg in st.session_state.history:
+        with st.chat_message(msg["role"]): st.markdown(msg["content"])
+    
+    if user_q := st.chat_input("اسأل أي شيء..."):
+        st.session_state.history.append({"role": "user", "content": user_q})
+        with st.chat_message("user"): st.markdown(user_q)
         with st.chat_message("assistant"):
-            payload = [p]
-            if chat_up:
-                for cf in chat_up:
-                    if cf.type.startswith('image/'): payload.append(Image.open(cf))
-                    else: payload.append(f"مرفق: {cf.name}")
-            r = model.generate_content(payload).text
-            st.markdown(r)
-            st.session_state.messages.append({"role": "assistant", "content": r})
+            ans = model.generate_content(user_q).text
+            st.markdown(ans)
+            st.session_state.history.append({"role": "assistant", "content": ans})
 
-# --- القرآن ---
-with t3:
-    st.markdown('<div class="card"><h2>📖 التفسير الملم والرزين</h2></div>', unsafe_allow_html=True)
-    q = st.text_input("أدخل الآية أو السورة:")
-    if q:
-        with st.spinner("جاري استحضار علوم القرآن..."):
-            res = model.generate_content(f"فسر الآتي بأسلوب رزين ملم بكافة التفاسير: {q}").text
-            st.markdown(f'<div class="quran">{res}</div>', unsafe_allow_html=True)
+# 3. تبويب القرآن
+with tabs[2]:
+    st.header("📖 التفسير الملم")
+    q_verse = st.text_input("أدخل الآية أو اسم السورة:")
+    if q_verse:
+        with st.spinner("جاري استحضار التفاسير..."):
+            res_q = model.generate_content(f"فسر الآتي بأسلوب رزين ملم بكافة التفاسير: {q_verse}").text
+            st.markdown(f'<div class="card" style="border-right-color: #059669;">{res_q}</div>', unsafe_allow_html=True)
